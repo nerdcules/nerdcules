@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Re-download every screenshot listed in images/SOURCES from its own repo,
+# so this directory shows what each project's README shows today.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+owner=nerdcules
+grep -v '^#' images/SOURCES | while read -r file repo path; do
+  [ -n "$file" ] || continue
+  gh api -H 'Accept: application/vnd.github.raw' "repos/$owner/$repo/contents/$path" > "images/$file.tmp"
+  mv "images/$file.tmp" "images/$file"
+  echo "images/$file  <-  $repo/$path"
+done
+git status --short images

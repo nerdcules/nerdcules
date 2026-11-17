@@ -1,0 +1,12 @@
+# local file                 repo        path in that repo
+codegraph-session.gif        CodeGraph   codegraph/docs/images/promo-answer.gif
+codegraph-graph-view.png     CodeGraph   codegraph/docs/images/obsidian-graph-view.png
+codegraph-architecture.svg   CodeGraph   codegraph/docs/images/architecture.svg
+sankofa-radar.png            sankofa     docs/images/radar.png
+sankofa-map.png              sankofa     docs/images/map.png
+fathom-desktop.png           fathom      theme/preview.png
+fathom-start.jpg             fathom      start/preview.jpg
+fathom-deck.jpg              fathom      deck/preview.jpg
+o-rdp.png                    o-rdp       docs/screenshot.png
+snoopy.png                   snoopy      docs/screenshot.png
+snoopy-watch.png             snoopy      docs/watch.png

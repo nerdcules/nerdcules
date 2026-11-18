@@ -12,7 +12,7 @@ A directory of my public projects: tools for AI coding assistants, and desktop a
 |---|---|---|---|
 | [CodeGraph](#codegraph) | Code graph MCP server: who calls this, what breaks if I change it, which tests guard it | C# | [![release](https://img.shields.io/github/v/release/nerdcules/CodeGraph?include_prereleases&label=)](https://github.com/nerdcules/CodeGraph/releases) |
 | [sankofa](#sankofa) | Shared memory and file locks for many AI coding sessions on one codebase | C# | [![release](https://img.shields.io/github/v/release/nerdcules/sankofa?include_prereleases&label=)](https://github.com/nerdcules/sankofa/releases) |
-| [Fathom](#fathom) | A Windows-inspired desktop layer for Omarchy, built for Docker, .NET and AI work | QML | – |
+| [Fathom](#fathom) | A Windows-inspired desktop layer for Omarchy, built for Docker, .NET and AI work | QML | [![release](https://img.shields.io/github/v/release/nerdcules/fathom?include_prereleases&label=)](https://github.com/nerdcules/fathom/releases) |
 | [o-rdp](#o-rdp) | Finds the PCs with Remote Desktop on your network and connects to them | C++ / Qt Quick | – |
 | [Snoopy](#snoopy) | What each app on a connected Android phone reads, and where it connects | C++ / Qt Quick | – |
 
@@ -21,7 +21,7 @@ A directory of my public projects: tools for AI coding assistants, and desktop a
 ## CodeGraph
 
 **[github.com/nerdcules/CodeGraph](https://github.com/nerdcules/CodeGraph)**  
-Idea: mine · Written by: Claude, in Claude Code · 77 of 99 commits co-authored by Claude (counted 17 Nov 2026)
+Idea: mine · Written by: Claude, in Claude Code · 78 of 100 commits co-authored by Claude (counted 18 Nov 2026)
 
 Gives your AI coding assistant the compiler's answers: who calls this, what breaks if I change it,
 which tests guard it. It reads a codebase with its compiler (C#, TypeScript and Angular, Java, Go,
@@ -47,7 +47,7 @@ Details and the later run-time check are in the
 ## sankofa
 
 **[github.com/nerdcules/sankofa](https://github.com/nerdcules/sankofa)**  
-Idea: mine · Written by: Claude, in Claude Code · 50 of 56 commits co-authored by Claude (counted 17 Nov 2026)
+Idea: mine · Written by: Claude, in Claude Code · 51 of 57 commits co-authored by Claude (counted 18 Nov 2026)
 
 *Sankofa* (Akan): "go back and fetch it." One small ledger that every AI coding session, subagent,
 client and machine goes back to: what was done, what is open, who is working on which files, what to
@@ -65,14 +65,24 @@ same files is refused by name. Linux, macOS and Windows share one ledger.
 ## Fathom
 
 **[github.com/nerdcules/fathom](https://github.com/nerdcules/fathom)**  
-Idea: mine · Written by: Claude, in Claude Code · 28 of 28 commits co-authored by Claude (counted 17 Nov 2026)
+Idea: mine · Written by: Claude, in Claude Code · 57 of 57 commits co-authored by Claude (counted 18 Nov 2026)
 
 A futuristic, Windows-inspired desktop layer for Omarchy, built for Docker, .NET and AI work:
-a desktop theme with a glassy bar, a Start menu, the Command Deck (system, containers, .NET apps and
-AI agents on one page), Alt+Tab with previews, Task view, Snap layouts, Quick settings, a
-mini-player, mail notifications and a sign-in screen. Each part installs on its own.
+a desktop theme with a glassy bar, a Start menu, and the Command Deck, whose pages are the system,
+containers, .NET apps and AI agents; Care (updates, failed services, disk); Sentinel (firewall
+blocks, sign-ins, new devices on your network, system files); Pulse (a map of what calls what in your
+stack, and Claude Code's day); Crumbs (every browser's cookies and the trackers behind them); and
+Personalise. Then Alt+Tab with previews, Task view, Snap layouts, Quick settings, a mini-player, mail
+notifications and a sign-in screen. Each part installs on its own, `fathom-update` follows its
+releases, and its version and build number show in the deck, Start and the sign-in screen. Its phone side pairs with Fathom for Android, an
+Android home screen (private for now).
 
 ![Fathom desktop](images/fathom-desktop.png)
+
+[![Personalise changing Fathom's accent and corners, from the promo](images/fathom-promo.gif)](https://github.com/nerdcules/fathom#promo)
+
+*From the 92.83-second promo (17 November 2026); the tour is in the
+[Fathom README](https://github.com/nerdcules/fathom#promo).*
 
 <table><tr>
 <td width="50%"><img src="images/fathom-start.jpg" alt="Fathom Start menu"></td>
@@ -80,12 +90,18 @@ mini-player, mail notifications and a sign-in screen. Each part installs on its 
 </tr><tr>
 <td>Start menu</td>
 <td>Command Deck</td>
+</tr><tr>
+<td width="50%"><img src="images/fathom-care.jpg" alt="Fathom Care"></td>
+<td width="50%"><img src="images/fathom-crumbs.jpg" alt="Crumbs, showing made-up browsing"></td>
+</tr><tr>
+<td>Care</td>
+<td>Crumbs (made-up browsing)</td>
 </tr></table>
 
 ## o-rdp
 
 **[github.com/nerdcules/o-rdp](https://github.com/nerdcules/o-rdp)**  
-Idea: mine · Written by: Claude, in Claude Code · 2 of 2 commits co-authored by Claude (counted 17 Nov 2026)
+Idea: mine · Written by: Claude, in Claude Code · 3 of 3 commits co-authored by Claude (counted 18 Nov 2026)
 
 Finds the PCs with Remote Desktop on your local network and connects to them with FreeRDP. It scans
 the subnet of the default route for port 3389, names each PC (NetBIOS, reverse DNS, then Avahi),
@@ -97,7 +113,7 @@ fails. Keyboard-driven.
 ## Snoopy
 
 **[github.com/nerdcules/snoopy](https://github.com/nerdcules/snoopy)**  
-Idea: mine · Written by: Claude, in Claude Code · 26 of 28 commits co-authored by Claude (counted 17 Nov 2026)
+Idea: mine · Written by: Claude, in Claude Code · 27 of 29 commits co-authored by Claude (counted 18 Nov 2026)
 
 For an Android phone plugged into this computer, shows what each app recently read (location,
 camera, microphone, contacts, photos, clipboard and more) and where it is connected: the address,
@@ -115,6 +131,6 @@ nothing is installed on the phone and nothing is decrypted.
 ---
 
 <sub>Ideas: mine. Code and writing: Claude, in Claude Code. Commit counts come from each repo's
-history on GitHub on 17 Nov 2026; a commit without the trailer is not a claim either way.
+history on GitHub on 18 Nov 2026; a commit without the trailer is not a claim either way.
 Screenshots are copies of the ones in each project's own repo; `bin/refresh-images` fetches
 them again (sources in [images/SOURCES](images/SOURCES)).</sub>

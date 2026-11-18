@@ -65,7 +65,7 @@ same files is refused by name. Linux, macOS and Windows share one ledger.
 ## Fathom
 
 **[github.com/nerdcules/fathom](https://github.com/nerdcules/fathom)**  
-Idea: mine · Written by: Claude, in Claude Code · 57 of 57 commits co-authored by Claude (counted 18 Nov 2026)
+Idea: mine · Written by: Claude, in Claude Code · 61 of 61 commits co-authored by Claude (counted 18 Nov 2026)
 
 A futuristic, Windows-inspired desktop layer for Omarchy, built for Docker, .NET and AI work:
 a desktop theme with a glassy bar, a Start menu, and the Command Deck, whose pages are the system,
@@ -74,8 +74,14 @@ blocks, sign-ins, new devices on your network, system files); Pulse (a map of wh
 stack, and Claude Code's day); Crumbs (every browser's cookies and the trackers behind them); and
 Personalise. Then Alt+Tab with previews, Task view, Snap layouts, Quick settings, a mini-player, mail
 notifications and a sign-in screen. Each part installs on its own, `fathom-update` follows its
-releases, and its version and build number show in the deck, Start and the sign-in screen. Its phone side pairs with Fathom for Android, an
-Android home screen (private for now).
+releases, and its version and build number show in the deck, Start, Quick settings and the sign-in
+screen.
+
+**[0.2.0](https://github.com/nerdcules/fathom/releases/tag/v0.2.0)** (18 November 2026) adds the
+laptop side of Fathom for Android, an Android home screen (private for now): pairing by QR code,
+alerts the phone can act on, Sankofa's ledgers, the phone's own health kept on the laptop, and Ask
+Claude, where Claude Code on the laptop explains what the health rules found. Checked in an
+Omarchy 4.5.0-3 VM: 26 passed, 0 failed.
 
 ![Fathom desktop](images/fathom-desktop.png)
 

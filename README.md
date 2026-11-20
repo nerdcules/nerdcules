@@ -15,6 +15,7 @@ A directory of my public projects: tools for AI coding assistants, and desktop a
 | [Fathom](#fathom) | A Windows-inspired desktop layer for Omarchy, built for Docker, .NET and AI work | QML | [![release](https://img.shields.io/github/v/release/nerdcules/fathom?include_prereleases&label=)](https://github.com/nerdcules/fathom/releases) |
 | [o-rdp](#o-rdp) | Finds the PCs with Remote Desktop on your network and connects to them | C++ / Qt Quick | – |
 | [Snoopy](#snoopy) | What each app on a connected Android phone reads, and where it connects | C++ / Qt Quick | – |
+| [Ward](#ward) | Which published CVEs affect this machine, and which of them matter here | C++ / Qt Quick | [![release](https://img.shields.io/github/v/release/nerdcules/ward?include_prereleases&label=)](https://github.com/nerdcules/ward/releases) |
 
 Keeping them up to date, with pre-releases to test and a way back: [Updates](#updates).
 
@@ -137,10 +138,24 @@ nothing is installed on the phone and nothing is decrypted.
 </tr></table>
 
 
+## Ward
+
+**[github.com/nerdcules/ward](https://github.com/nerdcules/ward)**  
+Idea: mine · Written by: Claude, in Claude Code · 1 of 1 commits co-authored by Claude (counted 20 Nov 2026)
+
+Matches every installed pacman package, and the kernel, against CVE.org's records, Arch's
+security tracker, CISA's list of exploited vulnerabilities and kernel.org's maintained branches.
+It works out what the machine actually uses (running services, loaded libraries, listening
+sockets, which kernel modules are loaded) and has Claude Code, with no tools, judge what is left:
+does it apply here, and how soon does it matter. A daily check, once you turn it on, alerts you when something needs
+you; fixes run in a terminal only after you confirm.
+
+![Ward listing the packages a CVE matches, with triage's verdicts (made-up data)](images/ward.png)
+
 ## Updates
 
-`nerdcules-update` updates the apps above that run on this computer (o-rdp, Snoopy, Fathom and
-sankofa) from their own repositories, and goes back when an update doesn't work out.
+`nerdcules-update` updates the apps above that run on this computer (o-rdp, Snoopy, Ward, Fathom
+and sankofa) from their own repositories, and goes back when an update doesn't work out.
 `bin/install-update` links it into `~/.local/bin`.
 
 ```bash
@@ -165,12 +180,12 @@ when a build or an install needs a package you don't have. How each app installs
 
 | Kind | Apps | Update | Rollback |
 |---|---|---|---|
-| `makepkg` | o-rdp, Snoopy | clones the repo into `~/.local/share/nerdcules-update/<app>/src`, builds the tag's Arch package with `pkgver` set from the tag (`v0.2.0-rc.1` becomes `0.2.0rc.1`, which pacman puts before `0.2.0`; `main` becomes `0.1.0.r5.gabc1234`), installs it with `sudo pacman -U` | reinstalls the earlier package, kept next to the clone, without building |
+| `makepkg` | o-rdp, Snoopy, Ward | clones the repo into `~/.local/share/nerdcules-update/<app>/src`, builds the tag's Arch package with `pkgver` set from the tag (`v0.2.0-rc.1` becomes `0.2.0rc.1`, which pacman puts before `0.2.0`; `main` becomes `0.1.0.r5.gabc1234`), installs it with `sudo pacman -U` | reinstalls the earlier package, kept next to the clone, without building |
 | `fathom-update` | Fathom | Fathom's own updater; its channels are `releases`, `prereleases`, `main` | `fathom-update rollback` |
 | `release-tarball` | sankofa | downloads the tag's release tarball, unpacks it beside the earlier ones in `~/.local/share/sankofa`, points `current` at it and runs its `install.sh` | points `current` back and runs that version's `install.sh` |
 
 sankofa run from a clone of your own (its command a link into a git checkout, as its `./install.sh`
-run from the clone leaves it) is left alone: `nerdcules-update` says to `git pull` there instead. o-rdp and Snoopy
+run from the clone leaves it) is left alone: `nerdcules-update` says to `git pull` there instead. o-rdp, Snoopy and Ward
 installed with their own `bin/install` are ordinary packages, and an update replaces them.
 Fathom always updates the clone it was installed from, as `fathom-update` does.
 
@@ -182,6 +197,6 @@ real `makepkg` build of a stand-in package; a stand-in pacman, nothing installed
 ---
 
 <sub>Ideas: mine. Code and writing: Claude, in Claude Code. Commit counts come from each repo's
-history on GitHub on 18 Nov 2026; a commit without the trailer is not a claim either way.
+history on GitHub on the date given beside each; a commit without the trailer is not a claim either way.
 Screenshots are copies of the ones in each project's own repo; `bin/refresh-images` fetches
 them again (sources in [images/SOURCES](images/SOURCES)).</sub>

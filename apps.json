@@ -25,5 +25,11 @@
     "asset": "{repo}/releases/download/{tag}/sankofa-linux-{arch}.tar.gz",
     "home": "~/.local/share/sankofa",
     "command": "sankofa"
+  },
+  "ward": {
+    "repo": "https://github.com/nerdcules/ward.git",
+    "kind": "makepkg",
+    "package": "ward",
+    "pkgbuild": "pkgbuild"
   }
 }

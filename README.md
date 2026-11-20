@@ -16,6 +16,8 @@ A directory of my public projects: tools for AI coding assistants, and desktop a
 | [o-rdp](#o-rdp) | Finds the PCs with Remote Desktop on your network and connects to them | C++ / Qt Quick | – |
 | [Snoopy](#snoopy) | What each app on a connected Android phone reads, and where it connects | C++ / Qt Quick | – |
 
+Keeping them up to date, with pre-releases to test and a way back: [Updates](#updates).
+
 ---
 
 ## CodeGraph
@@ -133,6 +135,49 @@ nothing is installed on the phone and nothing is decrypted.
 <td>Apps, what they read, where they connect</td>
 <td>The Watch page</td>
 </tr></table>
+
+
+## Updates
+
+`nerdcules-update` updates the apps above that run on this computer (o-rdp, Snoopy, Fathom and
+sankofa) from their own repositories, and goes back when an update doesn't work out.
+`bin/install-update` links it into `~/.local/bin`.
+
+```bash
+nerdcules-update                                 # each app: installed, channel, newest
+nerdcules-update apply o-rdp                     # install the newest on o-rdp's channel
+nerdcules-update rollback o-rdp                  # back to the version before
+nerdcules-update install o-rdp v0.2.0-rc.1       # any tag (or main), to test it or go further back
+nerdcules-update versions o-rdp                  # the tags published, and the builds kept here
+nerdcules-update channel o-rdp prerelease        # stable (default) | prerelease | main
+```
+
+Versions are git tags named for [semantic versions](https://semver.org): `v1.2.0` is a release,
+`v1.2.0-rc.1` a pre-release of it. The **stable** channel offers releases only; **prerelease**
+offers whichever tag is newest, so it moves on from `v1.2.0-rc.1` to `v1.2.0` when that is
+tagged; **main** follows every commit. A pre-release published on GitHub is marked as one
+(`gh release create v1.2.0-rc.1 --prerelease`), so GitHub's "latest" is never a pre-release.
+
+Nothing runs on its own. What goes online: `git` to each app's own GitHub repository (check,
+versions, apply, install), sankofa's release download from GitHub, and pacman to your mirrors
+when a build or an install needs a package you don't have. How each app installs is in
+[apps.json](apps.json):
+
+| Kind | Apps | Update | Rollback |
+|---|---|---|---|
+| `makepkg` | o-rdp, Snoopy | clones the repo into `~/.local/share/nerdcules-update/<app>/src`, builds the tag's Arch package with `pkgver` set from the tag (`v0.2.0-rc.1` becomes `0.2.0rc.1`, which pacman puts before `0.2.0`; `main` becomes `0.1.0.r5.gabc1234`), installs it with `sudo pacman -U` | reinstalls the earlier package, kept next to the clone, without building |
+| `fathom-update` | Fathom | Fathom's own updater; its channels are `releases`, `prereleases`, `main` | `fathom-update rollback` |
+| `release-tarball` | sankofa | downloads the tag's release tarball, unpacks it beside the earlier ones in `~/.local/share/sankofa`, points `current` at it and runs its `install.sh` | points `current` back and runs that version's `install.sh` |
+
+sankofa run from a clone of your own (its command a link into a git checkout, as its `./install.sh`
+run from the clone leaves it) is left alone: `nerdcules-update` says to `git pull` there instead. o-rdp and Snoopy
+installed with their own `bin/install` are ordinary packages, and an update replaces them.
+Fathom always updates the clone it was installed from, as `fathom-update` does.
+
+A new app joins with an entry in `apps.json` (its repo, its kind, and for `makepkg` its package
+name and PKGBUILD folder), and by tagging its releases `vMAJOR.MINOR.PATCH`, pre-releases
+`vMAJOR.MINOR.PATCH-rc.N`. Tests: `python3 -m unittest tests.test_update` (real git repos and a
+real `makepkg` build of a stand-in package; a stand-in pacman, nothing installed).
 
 ---
 

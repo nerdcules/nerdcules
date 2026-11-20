@@ -1,0 +1,654 @@
+#!/usr/bin/env python3
+"""Updates for the nerdcules apps: what's installed, what's newer, install
+it, and go back.
+
+  nerdcules-update [check] [APP...]     each app's installed version and the
+                                         newest one on its channel
+  nerdcules-update apply APP            install the newest on APP's channel
+  nerdcules-update install APP VERSION  install that version: a tag such as
+                                         v0.2.0-rc.1, or main (to test one,
+                                         or to go further back)
+  nerdcules-update rollback APP         back to the version installed before
+                                         the last apply or install
+  nerdcules-update versions APP         the versions published, newest first,
+                                         and the ones kept here to go back to
+  nerdcules-update channel APP stable|prerelease|main
+                                         stable: tags vMAJOR.MINOR.PATCH only
+                                         (the default); prerelease: those and
+                                         tags like v1.2.0-rc.1, whichever is
+                                         newest; main: every commit on main
+  nerdcules-update apps                 the apps it knows (apps.json)
+
+  --json prints check, versions and apps as JSON.
+
+Nothing runs on its own. check, apply, install and versions go online to
+each app's own git repository (and, for an app that ships release tarballs,
+its GitHub release download); rollback does only when the earlier package
+isn't kept and has to be built again. makepkg and pacman reach your mirrors
+when a build or an install needs a package you don't have.
+
+How each app installs is in apps.json next to this program's folder:
+  makepkg          built here from a clone of its repository at the tag, as
+                   an Arch package (pkgver set from the tag), installed with
+                   sudo pacman -U; every package built is kept, so rollback
+                   reinstalls the earlier one without building
+  fathom-update    Fathom's own updater does the work; its channel names are
+                   releases, prereleases and main
+  release-tarball  the GitHub release asset for the tag, unpacked into the
+                   app's folder beside the earlier ones, "current" pointed at
+                   it and its install.sh run
+"""
+
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tarfile
+import tempfile
+import time
+import urllib.request
+
+HOME = os.path.expanduser("~")
+CONFIG = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.join(HOME, ".config"), "nerdcules-update")
+STATE = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.join(HOME, ".local", "state"), "nerdcules-update")
+DATA = os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.join(HOME, ".local", "share"), "nerdcules-update")
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+APPS = os.environ.get("NERDCULES_UPDATE_APPS") or os.path.join(HERE, "apps.json")
+SETTINGS = os.path.join(CONFIG, "settings.json")
+CHANNELS = ("stable", "prerelease", "main")
+FATHOM_CHANNELS = {"stable": "releases", "prerelease": "prereleases", "main": "main"}
+
+# vMAJOR.MINOR.PATCH, a pre-release after "-" (rc.1, beta2), build data after "+".
+SEMVER = re.compile(r"^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
+                    r"(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z.-]+)?$")
+
+
+class UpdateError(Exception):
+    pass
+
+
+# ---------------------------------------------------------------- versions
+
+
+def parse(tag):
+    """(major, minor, patch, prerelease identifiers) for a release tag, or None."""
+    m = SEMVER.match(tag)
+    if not m:
+        return None
+    pre = tuple(m.group(4).split(".")) if m.group(4) else ()
+    return int(m.group(1)), int(m.group(2)), int(m.group(3)), pre
+
+
+def precedence(tag):
+    """A sort key in semantic-version order: 1.2.0-rc.1 < 1.2.0-rc.2 < 1.2.0."""
+    major, minor, patch, pre = parse(tag)
+    ids = tuple((0, int(i), "") if i.isdigit() else (1, 0, i) for i in pre)
+    # A release sorts after all of its pre-releases.
+    return (major, minor, patch, 0 if pre else 1, ids)
+
+
+def is_prerelease(tag):
+    return bool(parse(tag)[3])
+
+
+def newest(tags, channel):
+    """The newest tag a channel follows, or None. stable never offers a
+    pre-release; prerelease offers whichever is newest."""
+    tags = [t for t in tags if parse(t) and (channel == "prerelease" or not is_prerelease(t))]
+    return max(tags, key=precedence) if tags else None
+
+
+def pkgver(tag):
+    """An Arch pkgver for a tag (no "-" allowed): v0.2.0-rc.1 -> 0.2.0rc.1,
+    which pacman sorts before 0.2.0."""
+    major, minor, patch, pre = parse(tag)
+    return f"{major}.{minor}.{patch}" + re.sub(r"[^0-9A-Za-z.]", "", ".".join(pre))
+
+
+# ---------------------------------------------------------------- records
+
+
+def read_json(path, default):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return default
+
+
+def write_json(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".new"
+    with open(tmp, "w") as f:
+        json.dump(data, f, indent=2)
+        f.write("\n")
+    os.replace(tmp, path)
+
+
+def apps():
+    data = read_json(APPS, None)
+    if not isinstance(data, dict):
+        raise UpdateError(f"can't read the list of apps in {APPS}")
+    return data
+
+
+def app(name):
+    known = apps()
+    if name not in known:
+        raise UpdateError(f"no app called {name}; the ones known: {', '.join(known)}")
+    return dict(known[name], name=name)
+
+
+def channel_of(name):
+    return read_json(SETTINGS, {}).get(name, {}).get("channel", "stable")
+
+
+def history(name):
+    return read_json(os.path.join(STATE, name + ".json"), {}).get("installs", [])
+
+
+def remember(name, entry):
+    path = os.path.join(STATE, name + ".json")
+    record = read_json(path, {})
+    installs = record.get("installs", [])
+    installs.append(dict(entry, time=int(time.time())))
+    record["installs"] = installs[-50:]
+    write_json(path, record)
+
+
+def forget_last(name):
+    path = os.path.join(STATE, name + ".json")
+    record = read_json(path, {})
+    record["installs"] = record.get("installs", [])[:-1]
+    write_json(path, record)
+
+
+# ---------------------------------------------------------------- git
+
+
+def run(cmd, cwd=None, check=True, quiet=True, env=None):
+    r = subprocess.run(cmd, cwd=cwd, env=env, text=True,
+                       capture_output=quiet, stdin=None if not quiet else subprocess.DEVNULL)
+    if check and r.returncode != 0:
+        detail = ((r.stderr or r.stdout or "").strip()[:400]) if quiet else ""
+        raise UpdateError(f"{' '.join(cmd[:3])} failed (exit {r.returncode})" + (f": {detail}" if detail else ""))
+    return (r.stdout or "").strip() if quiet else ""
+
+
+def remote_tags(repo):
+    """{tag: commit} from the repository, without cloning it."""
+    out = run(["git", "ls-remote", "--tags", repo])
+    tags = {}
+    for line in out.splitlines():
+        commit, _, ref = line.partition("\t")
+        name = ref.removeprefix("refs/tags/")
+        if name.endswith("^{}"):
+            tags[name[:-3]] = commit  # the commit an annotated tag points at
+        else:
+            tags.setdefault(name, commit)
+    return tags
+
+
+def remote_main(repo):
+    out = run(["git", "ls-remote", repo, "HEAD"])
+    return out.split("\t")[0] if out else None
+
+
+def target_of(a, channel, tags=None):
+    """(version label, commit, tag or None) of what the channel wants, or
+    (None, None, reason)."""
+    if channel == "main":
+        commit = remote_main(a["repo"])
+        if not commit:
+            return None, None, "the repository has no main branch"
+        return f"main@{commit[:7]}", commit, None
+    tags = remote_tags(a["repo"]) if tags is None else tags
+    tag = newest(tags, channel)
+    if not tag:
+        return None, None, ("no release yet" if channel == "prerelease"
+                            else "no stable release yet; pre-releases need the prerelease channel")
+    return tag, tags[tag], tag
+
+
+# ---------------------------------------------------------------- makepkg
+
+
+def pacman():
+    return os.environ.get("NERDCULES_UPDATE_PACMAN", "sudo pacman").split()
+
+
+def installed_package(package):
+    """The pkgver installed, or None."""
+    cmd = [c for c in pacman() if c != "sudo"]
+    r = subprocess.run(cmd + ["-Q", package], capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
+    parts = r.stdout.split()
+    return parts[1].rsplit("-", 1)[0] if len(parts) >= 2 else None
+
+
+def vercmp(a, b):
+    out = run(["vercmp", a, b])
+    return int(out)
+
+
+def clone_of(a):
+    src = os.path.join(DATA, a["name"], "src")
+    if not os.path.isdir(os.path.join(src, ".git")):
+        os.makedirs(os.path.dirname(src), exist_ok=True)
+        run(["git", "clone", "--quiet", a["repo"], src])
+    else:
+        run(["git", "-C", src, "fetch", "--quiet", "--force", "--tags", "--prune", "origin"])
+    return src
+
+
+def describe_main(src, base):
+    """A pkgver for a commit after the last release: 0.1.0.r5.gabc1234;
+    before any release, after the PKGBUILD's own pkgver (base)."""
+    d = run(["git", "-C", src, "describe", "--tags", "--long", "--match", "v[0-9]*", "HEAD"], check=False)
+    m = re.match(r"^(v.+)-(\d+)-g([0-9a-f]+)$", d or "")
+    if m and parse(m.group(1)):
+        return f"{pkgver(m.group(1))}.r{m.group(2)}.g{m.group(3)}"
+    count = run(["git", "-C", src, "rev-list", "--count", "HEAD"])
+    short = run(["git", "-C", src, "rev-parse", "--short=7", "HEAD"])
+    return f"{base}.r{count}.g{short}"
+
+
+def build_package(a, ref):
+    """Builds the package at ref in the updater's own clone; returns
+    (pkgver, commit, package file)."""
+    src = clone_of(a)
+    run(["git", "-C", src, "checkout", "--quiet", "--force", "--detach", ref])
+    run(["git", "-C", src, "clean", "-fdxq"])
+    commit = run(["git", "-C", src, "rev-parse", "HEAD"])
+    pkgdir = os.path.join(src, a.get("pkgbuild", "pkgbuild"))
+    path = os.path.join(pkgdir, "PKGBUILD")
+    with open(path) as f:
+        text = f.read()
+    m = re.search(r"(?m)^pkgver=([0-9A-Za-z._]+)\s*$", text)
+    version = pkgver(ref) if parse(ref) else describe_main(src, m.group(1) if m else "0.0.0")
+    text = re.sub(r"(?m)^pkgver=.*$", f"pkgver={version}", text)
+    text = re.sub(r"(?m)^pkgrel=.*$", "pkgrel=1", text)
+    with open(path, "w") as f:
+        f.write(text)
+    store = os.path.join(DATA, a["name"], "packages")
+    os.makedirs(store, exist_ok=True)
+    print(f"Building {a['name']} {version} ({commit[:7]})…", flush=True)
+    run(["makepkg", "-f", "-s"], cwd=pkgdir, quiet=False, env=dict(os.environ, PKGDEST=store))
+    package = a.get("package", a["name"])
+    for name in sorted(os.listdir(store)):
+        if name.startswith(f"{package}-{version}-1-") and ".pkg.tar" in name and not name.endswith(".sig"):
+            return version, commit, os.path.join(store, name)
+    raise UpdateError(f"makepkg finished but left no {package}-{version} package in {store}")
+
+
+def pacman_install(path):
+    print(f"Installing {os.path.basename(path)}…", flush=True)
+    run(pacman() + ["-U", path], quiet=False)
+
+
+class Makepkg:
+    def check(self, a, channel):
+        installed = installed_package(a.get("package", a["name"]))
+        formerly = None
+        for old in a.get("formerly", []) if installed is None else []:
+            installed = installed_package(old)
+            if installed:
+                formerly = old
+                break
+        last = (history(a["name"]) or [None])[-1]
+        label, commit, tag = target_of(a, channel)
+        result = {"installed": installed, "commit": (last or {}).get("commit"), "target": label,
+                  "available": False, "note": None}
+        if formerly:
+            result["note"] = (f"installed as {formerly}, the package's earlier name; "
+                              f"installing replaces it")
+        if not label:
+            result["note"] = "; ".join(n for n in (result["note"], tag) if n)
+            return result
+        if installed is None:
+            result["note"] = "not installed"
+            result["available"] = True
+        elif channel == "main":
+            result["available"] = not last or last.get("commit") != commit
+        else:
+            result["available"] = vercmp(pkgver(tag), installed) > 0
+        return result
+
+    def install(self, a, ref):
+        # A tag's package, once built, is the same every time.
+        built = self.built(a).get(pkgver(ref)) if parse(ref) else None
+        if built:
+            version, path = pkgver(ref), built
+            commit = remote_tags(a["repo"]).get(ref)
+        else:
+            version, commit, path = build_package(a, ref)
+        pacman_install(path)
+        remember(a["name"], {"version": version, "ref": ref, "commit": commit, "package": path})
+        return f"{a['name']} {version} is installed."
+
+    def rollback(self, a):
+        installs = history(a["name"])
+        if len(installs) < 2:
+            raise UpdateError(f"no earlier version of {a['name']} was installed by nerdcules-update to go back to")
+        earlier = installs[-2]
+        if os.path.isfile(earlier.get("package", "")):
+            pacman_install(earlier["package"])
+        else:
+            _, _, path = build_package(a, earlier["commit"])
+            pacman_install(path)
+        forget_last(a["name"])
+        return f"{a['name']} is back at {earlier['version']}."
+
+    def built(self, a):
+        """{pkgver: package file} of the packages built here."""
+        store = os.path.join(DATA, a["name"], "packages")
+        package = a.get("package", a["name"])
+        found = {}
+        for name in os.listdir(store) if os.path.isdir(store) else []:
+            m = re.match(rf"^{re.escape(package)}-([^-]+)-1-[^-]+\.pkg\.tar\.[a-z0-9]+$", name)
+            if m:
+                found[m.group(1)] = os.path.join(store, name)
+        return found
+
+    def kept(self, a):
+        return sorted(self.built(a), key=lambda v: os.path.getmtime(self.built(a)[v]), reverse=True)
+
+
+# ---------------------------------------------------------------- fathom-update
+
+
+class FathomUpdate:
+    def command(self, a):
+        found = shutil.which(a.get("command", "fathom-update"))
+        if not found:
+            raise UpdateError(f"{a.get('command', 'fathom-update')} isn't installed; install {a['name']} first")
+        return found
+
+    def check(self, a, channel):
+        out = run([self.command(a), "check", "--json"], check=False)
+        try:
+            r = json.loads(out)
+        except ValueError:
+            raise UpdateError(f"{a['name']}'s updater didn't answer: {out[:300]}")
+        return {"installed": r.get("version") or r.get("installed"), "commit": r.get("installed"),
+                "target": r.get("target"), "available": bool(r.get("available")),
+                "blocked": bool(r.get("blocked")), "note": r.get("blocked") or r.get("note")}
+
+    def install(self, a, ref):
+        if ref != "newest":
+            raise UpdateError(f"{a['name']}'s updater installs the newest on its channel only; "
+                              f"choose the channel with: nerdcules-update channel {a['name']} …")
+        run([self.command(a), "apply"], quiet=False)
+        return f"{a['name']} is updated."
+
+    def rollback(self, a):
+        run([self.command(a), "rollback"], quiet=False)
+        return f"{a['name']} is back at the version before."
+
+    def set_channel(self, a, channel):
+        run([self.command(a), "channel", FATHOM_CHANNELS[channel]], quiet=False)
+
+    def kept(self, a):
+        return []
+
+
+# ---------------------------------------------------------------- release tarballs
+
+
+def arch():
+    return {"x86_64": "x64", "aarch64": "arm64", "arm64": "arm64"}.get(os.uname().machine, os.uname().machine)
+
+
+class ReleaseTarball:
+    def home(self, a):
+        return os.path.expanduser(a["home"])
+
+    def installed(self, a):
+        """(version, folder) of the one "current" points at, or (None, None)."""
+        current = os.path.join(self.home(a), "current")
+        if not os.path.islink(current):
+            return None, None
+        folder = os.readlink(current)
+        m = re.match(rf"^{re.escape(a['name'])}-(.+?)(?:-linux-[^-]+)?$", os.path.basename(folder))
+        return (m.group(1) if m else folder), folder
+
+    def from_a_clone(self, a):
+        """Where the command runs from when it isn't one of these releases."""
+        command = shutil.which(a.get("command", a["name"]))
+        if not command:
+            return None
+        real = os.path.realpath(command)
+        if real.startswith(self.home(a) + os.sep):
+            return None
+        top = run(["git", "-C", os.path.dirname(real), "rev-parse", "--show-toplevel"], check=False)
+        return top or None
+
+    def check(self, a, channel):
+        version, _ = self.installed(a)
+        label, commit, tag = target_of(a, channel)
+        result = {"installed": version, "commit": None, "target": label, "available": False,
+                  "note": None if label else tag}
+        clone = self.from_a_clone(a)
+        if clone:
+            result["installed"] = result["installed"] or "from a clone"
+            result["note"] = f"runs from your clone at {clone}; update that with git pull"
+            result["blocked"] = True
+            return result
+        if channel == "main":
+            result["note"] = f"{a['name']} ships release tarballs only; there's no main channel for it"
+            result["target"] = None
+            return result
+        if not label:
+            return result
+        result["available"] = version is None or parse("v" + version) is None or \
+            precedence(tag) > precedence("v" + version)
+        return result
+
+    def unpack(self, a, tag):
+        web = a["repo"].removesuffix(".git")
+        url = a["asset"].format(repo=web, tag=tag, version=tag[1:], arch=arch())
+        print(f"Downloading {url}", flush=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = os.path.join(tmp, "release.tar.gz")
+            try:
+                with urllib.request.urlopen(url, timeout=60) as r, open(archive, "wb") as f:
+                    shutil.copyfileobj(r, f)
+            except OSError as e:
+                raise UpdateError(f"couldn't download {url}: {e}")
+            with tarfile.open(archive) as t:
+                t.extractall(tmp, filter="data")
+            folders = [d for d in os.listdir(tmp) if d.startswith(a["name"] + "-")
+                       and os.path.isdir(os.path.join(tmp, d))]
+            if len(folders) != 1:
+                raise UpdateError(f"the release tarball has no single {a['name']}-<version> folder")
+            os.makedirs(self.home(a), exist_ok=True)
+            dest = os.path.join(self.home(a), folders[0])
+            if os.path.isdir(dest):
+                shutil.rmtree(dest)
+            shutil.move(os.path.join(tmp, folders[0]), dest)
+            return folders[0]
+
+    def switch(self, a, folder):
+        current = os.path.join(self.home(a), "current")
+        tmp = current + ".new"
+        if os.path.lexists(tmp):
+            os.remove(tmp)
+        os.symlink(folder, tmp)
+        os.replace(tmp, current)
+        print(f"Running {folder}/install.sh", flush=True)
+        run(["sh", os.path.join(current, "install.sh")], quiet=False)
+
+    def install(self, a, ref):
+        if ref == "main":
+            raise UpdateError(f"{a['name']} ships release tarballs only; install a tag such as v1.2.0")
+        if not parse(ref):
+            raise UpdateError(f"{ref} isn't a release tag (vMAJOR.MINOR.PATCH, with -rc.1 for a pre-release)")
+        clone = self.from_a_clone(a)
+        if clone:
+            raise UpdateError(f"{a['name']} runs from your clone at {clone}; installing a release would "
+                              f"replace those links. Update the clone with git pull, or remove its links first")
+        _, before = self.installed(a)
+        folder = self.unpack(a, ref)
+        self.switch(a, folder)
+        if before and not history(a["name"]):
+            remember(a["name"], {"version": before, "ref": None, "folder": before})
+        remember(a["name"], {"version": ref[1:], "ref": ref, "folder": folder})
+        return f"{a['name']} {ref[1:]} is installed."
+
+    def rollback(self, a):
+        installs = history(a["name"])
+        if len(installs) < 2:
+            raise UpdateError(f"no earlier version of {a['name']} was installed by nerdcules-update to go back to")
+        earlier = installs[-2]
+        if not os.path.isdir(os.path.join(self.home(a), earlier["folder"])):
+            raise UpdateError(f"{earlier['folder']} is no longer in {self.home(a)}; "
+                              f"install it again with: nerdcules-update install {a['name']} v{earlier['version']}")
+        self.switch(a, earlier["folder"])
+        forget_last(a["name"])
+        return f"{a['name']} is back at {earlier['version']}."
+
+    def kept(self, a):
+        home = self.home(a)
+        if not os.path.isdir(home):
+            return []
+        return sorted(d for d in os.listdir(home) if d.startswith(a["name"] + "-")
+                      and os.path.isfile(os.path.join(home, d, "install.sh")))
+
+
+KINDS = {"makepkg": Makepkg(), "fathom-update": FathomUpdate(), "release-tarball": ReleaseTarball()}
+
+
+def kind(a):
+    if a.get("kind") not in KINDS:
+        raise UpdateError(f"{a['name']} has an unknown kind {a.get('kind')!r} in {APPS}")
+    return KINDS[a["kind"]]
+
+
+# ---------------------------------------------------------------- commands
+
+
+def check(names):
+    rows = []
+    for name in names or list(apps()):
+        a = app(name)
+        channel = channel_of(name)
+        try:
+            row = kind(a).check(a, channel)
+        except UpdateError as e:
+            row = {"installed": None, "target": None, "available": False, "note": str(e)}
+        rows.append(dict(row, app=name, channel=channel))
+    return rows
+
+
+def show(rows):
+    width = max(len(r["app"]) for r in rows)
+    lines = []
+    for r in rows:
+        installed = r.get("installed") or "not installed"
+        if r["available"]:
+            state = f"→ {r['target']}"
+        elif r.get("blocked") and r.get("target"):
+            state = f"newest {r['target']}"
+        elif r.get("target"):
+            state = f"up to date ({r['target']})"
+        else:
+            state = ""
+        note = f"  ({r['note']})" if r.get("note") else ""
+        lines.append(f"{r['app']:<{width}}  {installed:<22}  {r['channel']:<10}  {state}{note}".rstrip())
+    if any(r["available"] for r in rows):
+        lines.append("Install with: nerdcules-update apply APP")
+    return "\n".join(lines)
+
+
+def versions(name):
+    a = app(name)
+    published = []
+    if a["kind"] != "fathom-update":
+        tags = remote_tags(a["repo"])
+        published = sorted((t for t in tags if parse(t)), key=precedence, reverse=True)
+    else:
+        top = run(["git", "ls-remote", "--tags", a["repo"]], check=False)
+        names = {line.split("\t")[1].removeprefix("refs/tags/").removesuffix("^{}")
+                 for line in top.splitlines() if "\t" in line}
+        published = sorted((t for t in names if parse(t)), key=precedence, reverse=True)
+    return {"app": name, "channel": channel_of(name), "published": published,
+            "prereleases": [t for t in published if is_prerelease(t)], "kept": kind(a).kept(a)}
+
+
+def main(argv):
+    as_json = "--json" in argv
+    argv = [x for x in argv if x != "--json"]
+    cmd, args = (argv[0], argv[1:]) if argv else ("check", [])
+    if cmd in ("-h", "--help", "help"):
+        print(__doc__.strip())
+        return 0
+    try:
+        if cmd == "check":
+            rows = check(args)
+            print(json.dumps(rows, indent=2) if as_json else show(rows))
+        elif cmd == "apps":
+            known = apps()
+            print(json.dumps(known, indent=2) if as_json else
+                  "\n".join(f"{n}  {v['kind']}  {v['repo']}" for n, v in known.items()))
+        elif cmd == "versions":
+            if len(args) != 1:
+                raise UpdateError("versions takes one app")
+            v = versions(args[0])
+            if as_json:
+                print(json.dumps(v, indent=2))
+            else:
+                print(f"{v['app']} ({v['channel']} channel)")
+                print("Published: " + (", ".join(v["published"]) or "none yet"))
+                if v["kept"]:
+                    print("Kept here: " + ", ".join(v["kept"]))
+        elif cmd == "channel":
+            if len(args) != 2 or args[1] not in CHANNELS:
+                raise UpdateError("channel takes an app and stable, prerelease or main")
+            a = app(args[0])
+            if a["kind"] == "fathom-update":
+                FathomUpdate().set_channel(a, args[1])
+            settings = read_json(SETTINGS, {})
+            settings.setdefault(args[0], {})["channel"] = args[1]
+            write_json(SETTINGS, settings)
+            print({"stable": f"{args[0]} follows releases from now on (no pre-releases).",
+                   "prerelease": f"{args[0]} follows the newest release, pre-releases included.",
+                   "main": f"{args[0]} follows every commit on main."}[args[1]])
+        elif cmd == "apply":
+            if len(args) != 1:
+                raise UpdateError("apply takes one app")
+            a = app(args[0])
+            if a["kind"] == "fathom-update":
+                print(FathomUpdate().install(a, "newest"))
+                return 0
+            r = kind(a).check(a, channel_of(args[0]))
+            if not r["available"]:
+                print(f"{args[0]} is up to date" + (f" ({r['note']})." if r.get("note") else "."))
+                return 0
+            ref = "origin/HEAD" if channel_of(args[0]) == "main" else r["target"]
+            print(kind(a).install(a, ref))
+        elif cmd == "install":
+            if len(args) != 2:
+                raise UpdateError("install takes an app and a version (a tag, or main)")
+            a = app(args[0])
+            ref = "origin/HEAD" if args[1] == "main" else args[1]
+            if args[1] != "main" and a["kind"] == "makepkg" and args[1] not in remote_tags(a["repo"]):
+                raise UpdateError(f"{a['name']} has no tag {args[1]}; see nerdcules-update versions {a['name']}")
+            print(kind(a).install(a, ref))
+        elif cmd == "rollback":
+            if len(args) != 1:
+                raise UpdateError("rollback takes one app")
+            a = app(args[0])
+            print(kind(a).rollback(a))
+        else:
+            raise UpdateError(f"unknown command '{cmd}'; see nerdcules-update --help")
+    except UpdateError as e:
+        print(f"nerdcules-update: {e}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

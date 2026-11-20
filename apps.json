@@ -1,0 +1,29 @@
+{
+  "o-rdp": {
+    "repo": "https://github.com/nerdcules/o-rdp.git",
+    "kind": "makepkg",
+    "package": "o-rdp",
+    "pkgbuild": "pkgbuild"
+  },
+  "snoopy": {
+    "repo": "https://github.com/nerdcules/snoopy.git",
+    "kind": "makepkg",
+    "package": "snoopy-phone",
+    "pkgbuild": "pkgbuild",
+    "formerly": [
+      "snoopy"
+    ]
+  },
+  "fathom": {
+    "repo": "https://github.com/nerdcules/fathom.git",
+    "kind": "fathom-update",
+    "command": "fathom-update"
+  },
+  "sankofa": {
+    "repo": "https://github.com/nerdcules/sankofa.git",
+    "kind": "release-tarball",
+    "asset": "{repo}/releases/download/{tag}/sankofa-linux-{arch}.tar.gz",
+    "home": "~/.local/share/sankofa",
+    "command": "sankofa"
+  }
+}

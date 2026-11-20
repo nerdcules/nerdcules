@@ -1,0 +1,8 @@
+#!/bin/sh
+# Links nerdcules-update into ~/.local/bin, so it runs from this clone:
+# `git pull` here updates the updater itself.
+set -eu
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+mkdir -p "$HOME/.local/bin"
+ln -sfn "$here/nerdcules-update" "$HOME/.local/bin/nerdcules-update"
+echo "Linked $HOME/.local/bin/nerdcules-update -> $here/nerdcules-update"

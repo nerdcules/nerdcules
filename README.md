@@ -41,7 +41,7 @@ Details and the later run-time check are in the
 
 <table><tr>
 <td width="50%"><img src="images/codegraph-graph-view.png" alt="The code graph opened as an Obsidian vault, in graph view"></td>
-<td width="50%"><img src="images/codegraph-architecture.svg" alt="Architecture: extractors write graph.db, the MCP server reads it, the live daemon keeps it current"></td>
+<td width="50%"><img src="images/codegraph-architecture.svg" alt="Architecture: extractors write graph.db, the MCP server and the codegraph CLI read it, the live daemon keeps it current"></td>
 </tr><tr>
 <td>The graph as an Obsidian vault</td>
 <td>Extractors write the graph, the MCP server reads it, a daemon keeps it current</td>

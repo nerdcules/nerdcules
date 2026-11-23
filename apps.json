@@ -31,5 +31,17 @@
     "kind": "makepkg",
     "package": "ward",
     "pkgbuild": "pkgbuild"
+  },
+  "codegraph": {
+    "repo": "https://github.com/nerdcules/CodeGraph.git",
+    "kind": "install-script",
+    "script": "{repo}/raw/{tag}/codegraph/install.sh",
+    "args": [
+      "--version",
+      "{tag}",
+      "--yes",
+      "--no-vscode"
+    ],
+    "version_file": "~/.codegraph/bin/VERSION"
   }
 }

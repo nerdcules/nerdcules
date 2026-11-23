@@ -1,7 +1,7 @@
 """nerdcules-update against real git repositories in a scratch home: a bare
 "remote" per app, tags pushed to it, a real makepkg build of a tiny package,
 a stand-in pacman that records what it was asked to install, and release
-tarballs served from file:// URLs. Nothing goes online and nothing needs sudo."""
+tarballs and install scripts served from file:// URLs. Nothing goes online and nothing needs sudo."""
 
 import importlib.machinery
 import importlib.util
@@ -278,6 +278,64 @@ class TarballApp(Base):
         self.assertEqual(r.returncode, 1)
         self.assertIn("replace those links", r.stderr)
         self.assertEqual(self.calls_made(), [])
+
+
+class InstallScriptApp(Base):
+    """An app that installs itself: a stand-in install script, served from file://, records its arguments and
+    writes the VERSION file the app keeps."""
+
+    def make_script(self, tag):
+        folder = os.path.join(self.tmp, "scripts", tag)
+        os.makedirs(folder)
+        with open(os.path.join(folder, "install.sh"), "w") as f:
+            f.write('echo "install.sh $*" >> "$CALLS"\n'
+                    f'[ "$2" = v9.9.9 ] && exit 3\n'
+                    f'mkdir -p "{self.dir}" && echo "{tag[1:]}" > "{self.dir}/VERSION"\n')
+
+    def setUp(self):
+        super().setUp()
+        self.dir = os.path.join(self.home, ".demo", "bin")
+        self.write("README", "one\n")
+        self.commit("first", tag="v1.0.0")
+        self.write("README", "two\n")
+        self.commit("try", tag="v1.1.0-beta.1")
+        for tag in ("v1.0.0", "v1.1.0-beta.1"):
+            self.make_script(tag)
+        self.register(kind="install-script", version_file=os.path.join(self.dir, "VERSION"),
+                      script="file://" + self.tmp + "/scripts/{tag}/install.sh", args=["--version", "{tag}", "--yes"])
+
+    def test_apply_prerelease_and_rollback_run_the_tags_script(self):
+        os.makedirs(self.dir)
+        with open(os.path.join(self.dir, "VERSION"), "w") as f:
+            f.write("0.9.0\n")  # installed before nerdcules-update knew it
+        r = self.checked()
+        self.assertEqual((r["installed"], r["target"], r["available"]), ("0.9.0", "v1.0.0", True))
+        self.ok("apply", "demo")
+        self.ok("channel", "demo", "prerelease")
+        self.ok("apply", "demo")
+        self.assertEqual(self.checked()["installed"], "1.1.0-beta.1")
+        self.ok("rollback", "demo")
+        self.assertEqual(self.checked()["installed"], "1.0.0")
+        self.assertEqual(self.calls_made(), ["install.sh --version v1.0.0 --yes",
+                                             "install.sh --version v1.1.0-beta.1 --yes",
+                                             "install.sh --version v1.0.0 --yes"])
+        self.assertEqual(self.ok("versions", "demo").splitlines()[1], "Published: v1.1.0-beta.1, v1.0.0")
+
+    def test_main_an_unknown_tag_and_a_failed_script_say_so(self):
+        self.ok("channel", "demo", "main")
+        self.assertIn("releases only", self.checked()["note"])
+        r = self.update("install", "demo", "v2.0.0")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("no tag v2.0.0", r.stderr)
+        self.write("README", "three\n")
+        self.commit("broken", tag="v9.9.9")
+        self.make_script("v9.9.9")
+        r = self.update("install", "demo", "v9.9.9")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("failed (exit 3)", r.stderr)
+        r = self.update("rollback", "demo")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("no earlier version", r.stderr)
 
 
 class FathomApp(Base):

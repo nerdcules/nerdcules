@@ -22,9 +22,9 @@ it, and go back.
   --json prints check, versions and apps as JSON.
 
 Nothing runs on its own. check, apply, install and versions go online to
-each app's own git repository (and, for an app that ships release tarballs,
-its GitHub release download); rollback does only when the earlier package
-isn't kept and has to be built again. makepkg and pacman reach your mirrors
+each app's own git repository (and, for an app that ships release tarballs
+or installs itself, its GitHub release download); rollback does only when
+the earlier package isn't kept and has to be built or downloaded again. makepkg and pacman reach your mirrors
 when a build or an install needs a package you don't have.
 
 How each app installs is in apps.json next to this program's folder:
@@ -37,6 +37,10 @@ How each app installs is in apps.json next to this program's folder:
   release-tarball  the GitHub release asset for the tag, unpacked into the
                    app's folder beside the earlier ones, "current" pointed at
                    it and its install.sh run
+  install-script   the app's own install script at the tag, run with the tag
+                   (for an app that installs one version in place, such as
+                   CodeGraph); its VERSION file says what's installed, and
+                   rollback runs the earlier tag's script, online again
 """
 
 import json
@@ -518,7 +522,79 @@ class ReleaseTarball:
                       and os.path.isfile(os.path.join(home, d, "install.sh")))
 
 
-KINDS = {"makepkg": Makepkg(), "fathom-update": FathomUpdate(), "release-tarball": ReleaseTarball()}
+# ---------------------------------------------------------------- an app's own install script
+
+
+class InstallScript:
+    """The app installs itself: its install script, downloaded at the tag, is run with arguments that name the
+    tag. It keeps one version in place, so nothing is kept here and rollback installs the earlier tag again."""
+
+    def installed(self, a):
+        try:
+            with open(os.path.expanduser(a["version_file"])) as f:
+                return f.read().strip() or None
+        except OSError:
+            return None
+
+    def check(self, a, channel):
+        version = self.installed(a)
+        if channel == "main":
+            return {"installed": version, "commit": None, "target": None, "available": False,
+                    "note": f"{a['name']} installs from its releases only; there's no main channel for it"}
+        label, _, tag = target_of(a, channel)
+        result = {"installed": version, "commit": None, "target": label, "available": False,
+                  "note": None if label else tag}
+        if label:
+            result["available"] = version is None or parse("v" + version) is None or \
+                precedence(tag) > precedence("v" + version)
+        return result
+
+    def run_script(self, a, tag):
+        web = a["repo"].removesuffix(".git")
+        url = a["script"].format(repo=web, tag=tag, version=tag[1:])
+        args = [x.format(tag=tag, version=tag[1:]) for x in a.get("args", [])]
+        print(f"Downloading {url}", flush=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            script = os.path.join(tmp, "install.sh")
+            try:
+                with urllib.request.urlopen(url, timeout=60) as r, open(script, "wb") as f:
+                    shutil.copyfileobj(r, f)
+            except OSError as e:
+                raise UpdateError(f"couldn't download {url}: {e}")
+            print(f"Running it: install.sh {' '.join(args)}", flush=True)
+            run(["bash", script, *args], cwd=tmp, quiet=False)
+        now = self.installed(a)
+        if now != tag[1:]:
+            raise UpdateError(f"the install script ran, but {a['version_file']} says {now or 'nothing'}, "
+                              f"not {tag[1:]}")
+
+    def install(self, a, ref):
+        if not parse(ref):
+            raise UpdateError(f"{a['name']} installs from its releases only; install a tag such as v1.2.0")
+        if ref not in remote_tags(a["repo"]):
+            raise UpdateError(f"{a['name']} has no tag {ref}; see nerdcules-update versions {a['name']}")
+        before = self.installed(a)
+        self.run_script(a, ref)
+        if before and not history(a["name"]):
+            remember(a["name"], {"version": before, "ref": "v" + before, "folder": None})
+        remember(a["name"], {"version": ref[1:], "ref": ref, "folder": None})
+        return f"{a['name']} {ref[1:]} is installed."
+
+    def rollback(self, a):
+        installs = history(a["name"])
+        if len(installs) < 2:
+            raise UpdateError(f"no earlier version of {a['name']} was installed by nerdcules-update to go back to")
+        earlier = installs[-2]
+        self.run_script(a, earlier["ref"])
+        forget_last(a["name"])
+        return f"{a['name']} is back at {earlier['version']}."
+
+    def kept(self, a):
+        return []
+
+
+KINDS = {"makepkg": Makepkg(), "fathom-update": FathomUpdate(), "release-tarball": ReleaseTarball(),
+         "install-script": InstallScript()}
 
 
 def kind(a):

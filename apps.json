@@ -43,5 +43,11 @@
       "--no-vscode"
     ],
     "version_file": "~/.codegraph/bin/VERSION"
+  },
+  "imbizo": {
+    "repo": "https://github.com/nerdcules/imbizo.git",
+    "kind": "makepkg",
+    "package": "imbizo",
+    "pkgbuild": "pkgbuild"
   }
 }

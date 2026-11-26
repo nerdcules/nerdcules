@@ -155,7 +155,7 @@ you; fixes run in a terminal only after you confirm.
 ## Updates
 
 `nerdcules-update` updates the apps above that run on this computer (o-rdp, Snoopy, Ward, Fathom,
-sankofa and CodeGraph) from their own repositories, and goes back when an update doesn't work out.
+sankofa and CodeGraph) and Imbizo, from their own repositories, and goes back when an update doesn't work out.
 `bin/install-update` links it into `~/.local/bin`.
 
 ```bash
@@ -180,13 +180,13 @@ when a build or an install needs a package you don't have. How each app installs
 
 | Kind | Apps | Update | Rollback |
 |---|---|---|---|
-| `makepkg` | o-rdp, Snoopy, Ward | clones the repo into `~/.local/share/nerdcules-update/<app>/src`, builds the tag's Arch package with `pkgver` set from the tag (`v0.2.0-rc.1` becomes `0.2.0rc.1`, which pacman puts before `0.2.0`; `main` becomes `0.1.0.r5.gabc1234`), installs it with `sudo pacman -U` | reinstalls the earlier package, kept next to the clone, without building |
+| `makepkg` | o-rdp, Snoopy, Ward, Imbizo | clones the repo into `~/.local/share/nerdcules-update/<app>/src`, builds the tag's Arch package with `pkgver` set from the tag (`v0.2.0-rc.1` becomes `0.2.0rc.1`, which pacman puts before `0.2.0`; `main` becomes `0.1.0.r5.gabc1234`), installs it with `sudo pacman -U` | reinstalls the earlier package, kept next to the clone, without building |
 | `fathom-update` | Fathom | Fathom's own updater; its channels are `releases`, `prereleases`, `main` | `fathom-update rollback` |
 | `release-tarball` | sankofa | downloads the tag's release tarball, unpacks it beside the earlier ones in `~/.local/share/sankofa`, points `current` at it and runs its `install.sh` | points `current` back and runs that version's `install.sh` |
 | `install-script` | CodeGraph | downloads the app's own install script at the tag and runs it with the tag (`install.sh --version v1.6.0 --yes --no-vscode`); the app's `VERSION` file (`~/.codegraph/bin/VERSION`) says what is installed | runs the earlier tag's install script again, so it downloads that release again |
 
 sankofa run from a clone of your own (its command a link into a git checkout, as its `./install.sh`
-run from the clone leaves it) is left alone: `nerdcules-update` says to `git pull` there instead. o-rdp, Snoopy and Ward
+run from the clone leaves it) is left alone: `nerdcules-update` says to `git pull` there instead. o-rdp, Snoopy, Ward and Imbizo
 installed with their own `bin/install` are ordinary packages, and an update replaces them.
 Fathom always updates the clone it was installed from, as `fathom-update` does.
 CodeGraph keeps one version in `~/.codegraph/bin`; its install script stops when an assistant session
